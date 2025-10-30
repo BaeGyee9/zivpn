@@ -540,7 +540,7 @@ def count_active_connections(port):
     try:
         # conntrack -L -p udp --dport PORT ကို သုံးပြီး (Source IP) အရေအတွက် အတိအကျကို ရေတွက်သည်
         # awk ဖြင့် 'src=IP' ကိုရှာပြီး sort -u ဖြင့် တစ်ခုတည်းသော IP များကို ရေတွက်သည်
-        cmd = f"conntrack -L -p udp --dport {port} | awk '{{for(i=1;i<=NF;i++){if($i~/src=/){print $i}}}}' | cut -d= -f2 | grep -v '127.0.0.1' | sort -u | wc -l"
+        cmd = f"conntrack -L -p udp --dport {port} | awk '{{for(i=1;i<=NF;i++){{if($i~/src=/){{print $i}}}}}}' | cut -d= -f2 | grep -v '127.0.0.1' | sort -u | wc -l"
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
         count = int(result.stdout.strip() or 0)
         return count
