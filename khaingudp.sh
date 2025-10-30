@@ -195,7 +195,7 @@ from datetime import datetime, timedelta
 USERS_FILE = "/etc/zivpn/users.json"
 CONFIG_FILE = "/etc/zivpn/config.json"
 LISTEN_FALLBACK = "5667"
-RECENT_SECONDS = 120
+RECENT_SECONDS = 60
 
 # မောင်သုည LOGO ကို အသုံးပြုရန် URL
 LOGO_URL = "https://raw.githubusercontent.com/BaeGyee9/zivpn/main/logo.png"
@@ -204,7 +204,7 @@ HTML = """<!doctype html>
 <html lang="my"><head><meta charset="utf-8">
 <title>မောင်သုည ZIVPN Panel</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="120">
+<meta http-equiv="refresh" content="60">
 <link href="https://fonts.googleapis.com/css2?family=Padauk:wght@400;700&display=swap" rel="stylesheet">
 <style>
 /* *** မောင်သုည တောင်းဆိုထားသော Dark Theme (CSS) V3 (Animated Rainbow Title & Colorful Labels) *** */
