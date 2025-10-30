@@ -767,11 +767,11 @@ sysctl -w net.ipv4.ip_forward=1 >/dev/null
 grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
 
 # **V3 FIX: UDP Timeout ကို 300 စက္ကန့် (၅ နာရီ) မှ 180 စက္ကန့် (၃ မိနစ်) သို့ ပြောင်းလဲခြင်း**
-#say "${Y}⏳ UDP Connection Timeout ကို ၃ မိနစ် (၁၈၀ စက္ကန့်) သို့ ပြောင်းနေသည်...${Z}"
-#sysctl -w net.netfilter.nf_conntrack_udp_timeout=180 >/dev/null
+say "${Y}⏳ UDP Connection Timeout ကို ၃ မိနစ် (၁၈၀ စက္ကန့်) သို့ ပြောင်းနေသည်...${Z}"
+sysctl -w net.netfilter.nf_conntrack_udp_timeout=180 >/dev/null
 sed -i '/nf_conntrack_udp_timeout/d' /etc/sysctl.conf 2>/dev/null || true
-#echo 'net.netfilter.nf_conntrack_udp_timeout=180' >> /etc/sysctl.conf
-#sysctl -p /etc/sysctl.conf >/dev/null
+echo 'net.netfilter.nf_conntrack_udp_timeout=180' >> /etc/sysctl.conf
+sysctl -p /etc/sysctl.conf >/dev/null
 
 IFACE=$(ip -4 route ls | awk '/default/ {print $5; exit}')
 [ -n "${IFACE:-}" ] || IFACE=eth0
