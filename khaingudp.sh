@@ -198,7 +198,7 @@ LISTEN_FALLBACK = "5667"
 RECENT_SECONDS = 60
 
 # မောင်သုည LOGO ကို အသုံးပြုရန် URL
-LOGO_URL = "https://raw.githubusercontent.com/BaeGyee9/khaing/main/logo.png"
+LOGO_URL = "https://raw.githubusercontent.com/BaeGyee9/zivpn/main/logo.png"
 
 HTML = """<!doctype html>
 <html lang="my"><head><meta charset="utf-8">
