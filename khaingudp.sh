@@ -1,7 +1,5 @@
 #!/bin/bash
-# ZIVPN UDP Server + Web UI (Myanmar) - V5
-# Fixes: Unstable/Incorrect Connection Counting (Fixed Conntrack logic to count Distinct Source IPs accurately).
-# Display Logic: 1-9 shows exact count; 10+ shows "အားလုံး: 10+"
+# ZIVPN UDP Server + Web UI (Myanmar)
 # Author mix: Zahid Islam (udp-zivpn) + Khaing tweaks + KHAINGUDP UI polish
 # Features: apt-guard, binary fetch fallback, UFW rules, DNAT+MASQ, sysctl forward,
 #           Flask 1.x-compatible Web UI (auto-refresh 120s), users.json <-> config.json mirror sync,
@@ -15,7 +13,7 @@ B="\e[1;34m"; G="\e[1;32m"; Y="\e[1;33m"; R="\e[1;31m"; C="\e[1;36m"; M="\e[1;35
 LINE="${B}────────────────────────────────────────────────────────${Z}"
 say(){ echo -e "$1"; }
 
-echo -e "\n$LINE\n${G}🌟 ZIVPN UDP Server + Web UI မောင်သုည (Connection Count Fix) V5 ${Z}\n$LINE"
+echo -e "\n$LINE\n${G}🌟 ZIVPN UDP Server + Web UI မောင်သုည (Connection Count Fix) V3 ${Z}\n$LINE"
 
 # ===== Root check & apt guards (unchanged structure) =====
 if [ "$(id -u)" -ne 0 ];
@@ -53,10 +51,9 @@ apt_guard_end(){
   if [ "${CNF_DISABLED:-0}" = "1" ] && [ -f "${CNF_CONF}.disabled" ]; then mv "${CNF_CONF}.disabled" "$CNF_CONF"; fi
 }
 
-# ===== Packages (conntrack required) =====
+# ===== Packages (unchanged) =====
 say "${Y}📦 Packages တင်နေပါတယ်...${Z}"
 apt_guard_start
-# conntrack ကို ထည့်သွင်းထားသည်
 apt-get update -y -o APT::Update::Post-Invoke-Success::= -o APT::Update::Post-Invoke::= >/dev/null
 apt-get install -y curl ufw jq python3 python3-flask python3-apt iproute2 conntrack ca-certificates >/dev/null || \
 {
@@ -94,7 +91,7 @@ if [ ! -f "$CFG" ]; then
   curl -fsSL -o "$CFG" "https://raw.githubusercontent.com/zahidbd2/udp-zivpn/main/config.json" || echo '{}' > "$CFG"
 fi
 
-# ===== Certs (unchanged) =====
+# ===== Certs (CN changed to 'khaingudp') =====
 if [ ! -f /etc/zivpn/zivpn.crt ] || [ ! -f /etc/zivpn/zivpn.key ];
 then
   say "${Y}🔐 SSL စိတျဖိုင်တွေ ဖန်တီးနေပါတယ်...${Z}"
@@ -131,7 +128,7 @@ else
   say "${Y}ℹ️ Web login UI OFF (dev mode)${Z}"
 fi
 
-# ===== Ask initial VPN passwords (unchanged) =====
+# ===== Ask initial VPN passwords (eg changed) =====
 say "${G}🔏 VPN Password List (tutorial) eg: khaing,alice,pass1${Z}"
 read -r -p "Passwords (Enter=zi): " input_pw
 if [ -z "${input_pw:-}" ];
@@ -141,22 +138,25 @@ then PW_LIST='["zi"]'; else
   }')
 fi
 
+# **V3 FIX: ZIVPN Client (Please wait a moment) ပြဿနာ ဖြေရှင်းရန် - .server အပိုင်းကို ဖယ်ရှားခြင်း**
+# Server IP ကို ရှာပါ (Server IP သည် ZIVPN client အတွက် မလိုအပ်ပါ)
+# SERVER_IP=$(hostname -I | awk '{print $1}')
+# if [ -z "${SERVER_IP:-}" ]; then
+#   SERVER_IP=$(curl -s icanhazip.com || echo "127.0.0.1")
+# fi
+
 # ===== Update config.json (Shell Logic) =====
 if jq . >/dev/null 2>&1 <<<'{}'; then
   TMP=$(mktemp)
-  SERVER_IP=$(hostname -I | awk '{print $1}')
-  if [ -z "${SERVER_IP:-}" ]; then
-    SERVER_IP=$(curl -s icanhazip.com || echo "127.0.0.1")
-  fi
-  
-  jq --argjson pw "$PW_LIST" --arg ip "$SERVER_IP" '
+  # **V3 FIX: .server ကို ဖယ်ရှားလိုက်ပြီ**
+  jq --argjson pw "$PW_LIST" '
     .auth.mode = "passwords" |
     .auth.config = $pw |
     .listen = (."listen" // ":5667") |
     .cert = "/etc/zivpn/zivpn.crt" |
     .key  = "/etc/zivpn/zivpn.key" |
-    .obfs = (."obfs" // "zivpn") |
-    .server = $ip
+    .obfs = (."obfs" // "zivpn")
+    # .server ကို ဖယ်ရှားထားပါသည်
   ' "$CFG" > "$TMP" && mv "$TMP" "$CFG"
 fi
 [ -f "$USERS" ] || echo "[]" > "$USERS"
@@ -185,7 +185,7 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
-# ===== Web Panel (Python Script) - *** V5: FINAL CONNECTION COUNT FIX *** =====
+# ===== Web Panel (Flask 1.x compatible, refresh 120s + Login UI) - *** NEW DESIGN V3 (Animated) + CONNECTION COUNT FIX *** =====
 say "${Y}🖥️ Web Panel (Flask) ကို ထည့်နေပါတယ်...${Z}"
 cat >/etc/zivpn/web.py <<'PY'
 from flask import Flask, jsonify, render_template_string, request, redirect, url_for, session, make_response
@@ -195,12 +195,11 @@ from datetime import datetime, timedelta
 USERS_FILE = "/etc/zivpn/users.json"
 CONFIG_FILE = "/etc/zivpn/config.json"
 LISTEN_FALLBACK = "5667"
-RECENT_SECONDS = 120 # Auto Refresh 120s
+RECENT_SECONDS = 120
 
 # မောင်သုည LOGO ကို အသုံးပြုရန် URL
 LOGO_URL = "https://raw.githubusercontent.com/BaeGyee9/khaing/main/logo.png"
 
-# V5: HTML/Jinja2 Code (Display Logic) နှင့်အတူ အပြည့်အစုံ ပြန်ထည့်ထားသည်
 HTML = """<!doctype html>
 <html lang="my"><head><meta charset="utf-8">
 <title>မောင်သုည ZIVPN Panel</title>
@@ -208,7 +207,7 @@ HTML = """<!doctype html>
 <meta http-equiv="refresh" content="120">
 <link href="https://fonts.googleapis.com/css2?family=Padauk:wght@400;700&display=swap" rel="stylesheet">
 <style>
-/* *** မောင်သုည တောင်းဆိုထားသော Dark Theme (CSS) V5 (Animated Rainbow Title & Colorful Labels) *** */
+/* *** မောင်သုည တောင်းဆိုထားသော Dark Theme (CSS) V3 (Animated Rainbow Title & Colorful Labels) *** */
 :root{
   --bg: #1e1e1e; /* Dark background */
   --fg: #f0f0f0; /* Light foreground text */
@@ -344,12 +343,11 @@ tr:hover{background:#3a3a3a}
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 /* အရောင်စုံလင်သော Status များ */
-.status-ok{color:white;background:#2ecc71} /* Green (1-9 Connections) */
-.pill-red{background:#e74c3c} /* Red (Offline) */
-.status-unk{color:white;background:#f39c12} /* Orange (10+ Connections) */
-.status-expired{color:white;background:#9b59b6} /* Purple (Expired) */
-.pill-orange{background:#e67e22} /* Orange (Port) */
-.pill-pink{background:#f78da7} /* Pink (Expires) */
+.status-ok{color:white;background:#2ecc71} /* Green */
+.pill-red{background:#e74c3c} /* Red */
+.status-expired{color:white;background:#9b59b6} /* Purple (ပန်းရောင်ဆန်ဆန်) */
+.pill-orange{background:#e67e22} /* Orange */
+.pill-pink{background:#f78da7} /* Pink */
 
 .muted{color:var(--bd)}
 .delform{display:inline}
@@ -365,7 +363,7 @@ tr.expired .muted{color:#ddd;}
 .err{margin:10px 0;padding:12px;border-radius:var(--radius);background:var(--delete-btn);color:white;font-weight:700;}
 
 
-/* Mobile Responsive */
+/* Mobile Responsive ( Connection Count အတွက် ပြင်ဆင်ထားသည် ) */
 @media (max-width: 768px) {
   body{padding:10px}
   .container{padding:0}
@@ -382,7 +380,7 @@ tr.expired .muted{color:#ddd;}
   td:nth-of-type(2):before { content: "🔑 Password"; }
   td:nth-of-type(3):before { content: "⏰ Expires"; }
   td:nth-of-type(4):before { content: "🔌 Port"; }
-  td:nth-of-type(5):before { content: "🔗 အခြေအနေ"; } /* ပြင်ဆင်ပြီး */
+  td:nth-of-type(5):before { content: "🔗 ချိတ်ဆက်မှု အရေအတွက်"; } /* ပြင်ဆင်ပြီး */
   td:nth-of-type(6):before { content: "🗑️ Delete"; }
   .delform{width:100%;}
   tr.expired td{background:var(--expired);}
@@ -451,7 +449,7 @@ tr.expired .muted{color:#ddd;}
       <th><i class="fas fa-lock icon-pass"></i> Password</th>
       <th><i class="fas fa-clock icon-expires"></i> Expires</th>
       <th><i class="fas fa-server icon-port"></i> Port (DNAT)</th>
-      <th><i class="fas fa-plug"></i> အခြေအနေ</th> <th><i class="fas fa-trash"></i> Delete</th>
+      <th><i class="fas fa-plug"></i> ချိတ်ဆက်မှု အရေတွက်</th> <th><i class="fas fa-trash"></i> Delete</th>
     </tr>
   </thead>
   <tbody>
@@ -462,12 +460,7 @@ tr.expired .muted{color:#ddd;}
     <td>{% if u.expires %}<span class="pill-pink">{{u.expires}}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
     <td>{% if u.port %}<span class="pill-orange">{{u.port}}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
     <td>
-      {# V5 FIX: 1-9 shows exact count, 10+ shows "အားလုံး: 10+" #}
-      {% if u.connections >= 10 %}<span class="pill status-unk">အားလုံး: 10+</span>
-      {% elif u.connections >= 1 %}<span class="pill status-ok">{{u.connections}} (ONLINE)</span>
-      {% elif u.expires and u.expires < today %}<span class="pill status-expired">EXPIRED</span> 
-      {% else %}<span class="pill pill-red">❌ OFFLINE</span>
-      {% endif %}
+      {% if u.connections > 1 %}<span class="pill pill-red">အားလုံး: {{u.connections}}</span> {% elif u.connections == 1 %}<span class="pill status-ok">၁ လုံး</span> {% elif u.expires and u.expires < today %}<span class="pill status-expired">EXPIRED</span> {% else %}<span class="pill status-unk">0 (OFFLINE)</span> {% endif %}
     </td> <td>
       <form class="delform" method="post" action="/delete" onsubmit="return confirm('{{u.user}} ကို ဖျက်မလား?')">
         <input type="hidden" name="user" value="{{u.user}}">
@@ -491,7 +484,7 @@ app.secret_key = os.environ.get("WEB_SECRET","dev-secret-change-me")
 ADMIN_USER = os.environ.get("WEB_ADMIN_USER","").strip()
 ADMIN_PASS = os.environ.get("WEB_ADMIN_PASSWORD","").strip()
 
-# *** Python Logic (Connection Counting Logic အသစ် V5 - Conntrack Fix) ***
+# *** Python Logic (Connection Counting Logic အသစ်) ***
 def read_json(path, default):
   try:
     with open(path,"r") as f: return json.load(f)
@@ -530,24 +523,36 @@ def pick_free_port():
   for p in range(6000,20000):
     if str(p) not in used: return str(p)
   return ""
-# *** count_active_connections function (V5: Conntrack Fix - Accurate IP Count) ***
+# *** has_recent_udp_activity ကို အစားထိုးမည့် function အသစ် ***
 def count_active_connections(port):
     """
-    V5 Fix: Counts distinct Source IPs connected to the destination port (DNATed)
-    via conntrack. Returns the exact number of distinct source IPs.
+    Given a port, counts the number of distinct Source IPs (users) connected
+    via that port using conntrack.
     """
     if not port: return 0
     try:
-        # conntrack -L -p udp --dport PORT ကို သုံးပြီး (Source IP) အရေအတွက် အတိအကျကို ရေတွက်သည်
-        # awk ဖြင့် 'src=IP' ကိုရှာပြီး sort -u ဖြင့် တစ်ခုတည်းသော IP များကို ရေတွက်သည်
-        cmd = f"conntrack -L -p udp --dport {port} | awk '{{for(i=1;i<=NF;i++){{if($i~/src=/){{print $i}}}}}}' | cut -d= -f2 | grep -v '127.0.0.1' | sort -u | wc -l"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
-        count = int(result.stdout.strip() or 0)
-        return count
-    except Exception:
-        # conntrack error/မရှိလျှင် 0 ပြန်ပေးမည်
+        # conntrack ကို သုံးပြီး သက်ဆိုင်ရာ port သို့ လာသော UDP connection များ၏ Source IP များကို ရေတွက်သည်
+        # dport=%s\\b ဆိုသည်မှာ DNAT လုပ်ထားသော Port (6000-19999) ကို ကိုယ်စားပြုသည်။
+        cmd = f"conntrack -L -p udp 2>/dev/null | grep 'dport={port}\\b'"
+        output = subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout
+        
+        distinct_ips = set()
+        
+        for line in output.splitlines():
+            # src=XX.XX.XX.XX ကို ရှာသည်
+            m_ip = re.search(r"src=(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", line)
+            
+            # conntrack တွင် ပုံမှန်အားဖြင့် Inactive များကို စစ်ထုတ်ပြီးသား ဖြစ်သည်။
+            if m_ip:
+                distinct_ips.add(m_ip.group(1))
+
+        # မတူညီသော Source IP အရေအတွက်ကို ပြန်ပေးသည်
+        return len(distinct_ips)
+    except Exception as e:
+        # print(f"Error in count_active_connections for port {port}: {e}") # Debugging အတွက်
         return 0
 
+# *** status_for_user function ကို ဖယ်ရှားပြီးဖြစ်သည် ***
 def sync_config_passwords(mode="mirror"):
   cfg=read_json(CONFIG_FILE,{})
   users=load_users()
@@ -567,14 +572,9 @@ def sync_config_passwords(mode="mirror"):
   cfg["cert"]=cfg.get("cert") or "/etc/zivpn/zivpn.crt"
   cfg["key"]=cfg.get("key") or "/etc/zivpn/zivpn.key"
   cfg["obfs"]=cfg.get("obfs") or "zivpn"
+  # **V3 FIX: .server ကို config.json မှ ဖယ်ရှားလိုက်ပြီ**
+  if "server" in cfg: del cfg["server"] 
   
-  if not cfg.get("server"):
-      try: # Get current public IP for server field if missing
-          server_ip = subprocess.run("hostname -I | awk '{print $1}'", shell=True, capture_output=True, text=True).stdout.strip()
-          if not server_ip: server_ip = subprocess.run("curl -s icanhazip.com", shell=True, capture_output=True, text=True).stdout.strip()
-          if server_ip: cfg["server"] = server_ip
-      except: pass
-
   write_json_atomic(CONFIG_FILE,cfg)
   subprocess.run("systemctl restart zivpn.service", shell=True)
 def login_enabled(): return bool(ADMIN_USER and ADMIN_PASS)
@@ -588,6 +588,8 @@ def build_view(msg="", err=""):
   if not require_login():
     return render_template_string(HTML, authed=False, logo=LOGO_URL, err=session.pop("login_err", None))
   users=load_users()
+  # active=get_udp_listen_ports() # ဤသည်ကို Connection Count အတွက် မသုံးတော့ပါ
+  # listen_port=get_listen_port_from_config() # ဤသည်ကို Connection Count အတွက် မသုံးတော့ပါ
   view=[]
   today_date=datetime.now().date()
   
@@ -602,19 +604,20 @@ def build_view(msg="", err=""):
         except ValueError:
             pass # Invalid format, treat as not explicitly expired
     
-    # *** Connection Status တွက်ချက်ခြင်း (V5: Conntrack Fix) ***
+    # *** Connection အရေအတွက် အသစ် တွက်ချက်ခြင်း ***
     user_port=str(u.get("port",""))
-    connections = 0 
-    if user_port:
-        # V5: ချိတ်ထားသော ဖုန်းအရေအတွက် အတိအကျ (Source IP Count) ပြန်လာမည်
-        connections = count_active_connections(user_port) 
+    connections = 0
+    if user_port: # Port သတ်မှတ်ထားမှသာ Connection အရေအတွက် တွက်ချက်နိုင်သည်
+        connections = count_active_connections(user_port)
+
+    # status=status_for_user(u,active,listen_port) # ဖယ်ရှားပြီး
     
     view.append(type("U",(),{
       "user":u.get("user",""),
       "password":u.get("password",""),
       "expires":expires_str,
       "port":u.get("port",""),
-      "connections":connections # *** Exact Count ***
+      "connections":connections # *** Connection အရေအတွက် အသစ် ထည့်သွင်းထားသည် ***
     }))
   view.sort(key=lambda x:(x.user or "").lower())
   today=today_date.strftime("%Y-%m-%d") # Pass string format for comparison in HTML
@@ -758,13 +761,13 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-# ===== Networking & Final steps (Conntrack Timeout Remove) =====
+# ===== Networking & Final steps (Timeout Fix) =====
 echo -e "${Y}🌐 UDP/DNAT + UFW + sysctl အပြည့်ချထားနေပါတယ်...${Z}"
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
 grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
 
-# *** V5: nf_conntrack_udp_timeout ကို ၅ မိနစ် (၃၀၀ စက္ကန့်) တွင်သာ ထားရှိခြင်း ***
-say "${Y}⏳ UDP Connection Timeout ကို ၅ မိနစ် (၃၀၀ စက္ကန့်) သို့ ထားရှိ/စစ်ဆေးနေသည်...${Z}"
+# **V3 FIX: UDP Timeout ကို 3600 စက္ကန့် (၁ နာရီ) မှ 300 စက္ကန့် (၅ မိနစ်) သို့ ပြောင်းလဲခြင်း**
+say "${Y}⏳ UDP Connection Timeout ကို ၅ မိနစ် (၃၀၀ စက္ကန့်) သို့ ပြောင်းနေသည်...${Z}"
 sysctl -w net.netfilter.nf_conntrack_udp_timeout=300 >/dev/null
 sed -i '/nf_conntrack_udp_timeout/d' /etc/sysctl.conf 2>/dev/null || true
 echo 'net.netfilter.nf_conntrack_udp_timeout=300' >> /etc/sysctl.conf
@@ -799,3 +802,4 @@ echo -e "${C}users.json  :${Z} ${Y}/etc/zivpn/users.json${Z}"
 echo -e "${C}config.json :${Z} ${Y}/etc/zivpn/config.json${Z}"
 echo -e "${C}Services    :${Z} ${Y}systemctl status|restart zivpn  •  systemctl status|restart zivpn-web${Z}"
 echo -e "$LINE"
+
