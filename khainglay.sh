@@ -7,9 +7,7 @@
 #           Web UI: Header logo + title + Messenger button, Delete button per user, CLEAN MODERN styling,
 #           Login UI (form-based session, logo included) with /etc/zivpn/web.env credentials.
 #
-# === FIX: net-tools dependency is now optional but recommended ===
-# Logic added to /check route: Only one unique IP address can use a password at any time.
-# New IP will delete the old IP's conntrack entry via subprocess.
+# === FINAL FIX: Correctly checks command names (ip for iproute2, netstat for net-tools) ===
 set -euo pipefail
 
 # ===== Pretty =====
@@ -17,7 +15,7 @@ B="\e[1;34m"; G="\e[1;32m"; Y="\e[1;33m"; R="\e[1;31m"; C="\e[1;36m"; M="\e[1;35
 LINE="${B}────────────────────────────────────────────────────────${Z}"
 say(){ echo -e "$1"; }
 
-echo -e "\n$LINE\n${G}🌟 ZIVPN UDP Server + Web UI မောင်သုည (FIXED V2)${Z}\n$LINE"
+echo -e "\n$LINE\n${G}🌟 ZIVPN UDP Server + Web UI မောင်သုည (FINAL FIXED V3)${Z}\n$LINE"
 
 # ===== Root check & apt guards (FIXED STRUCTURE) =====
 if [ "$(id -u)" -ne 0 ];
@@ -27,29 +25,44 @@ then
 fi
 export DEBIAN_FRONTEND=noninteractive
 
-# Check for necessary utilities
-REQUIRED_CMDS=("wget" "curl" "iproute2" "ufw")
+# Define packages and their corresponding commands
+# Format: "command_name:package_name"
+REQUIRED_PACKAGES=(
+  "wget:wget"
+  "curl:curl"
+  "ip:iproute2"  # Command 'ip', Package 'iproute2' - FOR NETWORK CONFIG
+  "ufw:ufw"      # Command 'ufw', Package 'ufw' - FOR FIREWALL
+)
 
-for cmd in "${REQUIRED_CMDS[@]}"; do
-  if ! command -v "$cmd" &>/dev/null; then
-    say "${R} ${cmd} လိုအပ်ပါသည်။ သွင်းယူနေသည်...${Z}"
-    apt update -qq >/dev/null 2>&1
-    apt install -y "$cmd" -qq >/dev/null 2>&1
-    if ! command -v "$cmd" &>/dev/null; then
-      say "${R} ${cmd} သွင်းယူ၍ မရပါ။ စစ်ဆေးပါ${Z}"
-      exit 1
+# === Check and Install Required Packages ===
+for item in "${REQUIRED_PACKAGES[@]}"; do
+    CMD="${item%:*}"      # Extract command name (e.g., 'ip')
+    PKG="${item#*:}"      # Extract package name (e.g., 'iproute2')
+
+    if ! command -v "$CMD" &>/dev/null; then
+        say "${R} ${PKG} (command: ${CMD}) လိုအပ်ပါသည်။ သွင်းယူနေသည်...${Z}"
+        
+        # 1. Update and install the package
+        apt update -qq >/dev/null 2>&1 
+        apt install -y "$PKG" -qq >/dev/null 2>&1
+        
+        # 2. Check if the command is now available
+        if ! command -v "$CMD" &>/dev/null; then
+            say "${R} ${PKG} သွင်းယူ၍ မရပါ။ စစ်ဆေးပါ${Z}"
+            exit 1 # Still exits if the necessary command cannot be installed
+        fi
     fi
-  fi
 done
 
-# net-tools ကို optional အနေဖြင့် ထည့်သွင်းရန် ကြိုးစားသည် (မရလဲ ဆက်သွားမည်)
+# net-tools check (optional, but check for 'netstat' command)
 if ! command -v netstat &>/dev/null; then
-  say "${Y} net-tools ကို ထည့်သွင်းရန် ကြိုးစားနေသည် (မရပါက ကျော်သွားမည်)...${Z}"
+  say "${Y} net-tools (command: netstat) ကို ထည့်သွင်းရန် ကြိုးစားနေသည် (မရပါက ကျော်သွားမည်)...${Z}"
   apt update -qq >/dev/null 2>&1
+  # Install package 'net-tools'
   apt install -y net-tools -qq >/dev/null 2>&1 || say "${Y} net-tools မရပါ။ ဆက်လက်လုပ်ဆောင်ပါမည်။${Z}"
 fi
 
-# Check and install Python & Flask (unchanged structure)
+# Check and install Python & Flask
 if ! command -v python3 &>/dev/null; then
   say "${R} Python 3 လိုအပ်ပါသည်။ သွင်းယူနေသည်...${Z}"
   apt update -qq >/dev/null 2>&1
@@ -60,7 +73,7 @@ if ! python3 -c "import flask" &>/dev/null; then
   pip3 install flask -qq >/dev/null 2>&1
 fi
 
-# Configuration paths (unchanged structure)
+# Configuration paths
 CONFIG_DIR="/etc/zivpn"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 USERS_FILE="$CONFIG_DIR/users.json"
@@ -71,7 +84,7 @@ ACTIVE_SESSIONS_FILE="$CONFIG_DIR/active_sessions.json"
 
 mkdir -p "$CONFIG_DIR"
 
-# Binary check and download logic (unchanged structure)
+# Binary check and download logic
 UDP_BINARY="/usr/bin/zivpn_udp"
 UDP_BIN_URL1="https://raw.githubusercontent.com/Zahid-islam02/udp-zivpn/main/zivpn_udp_amd64"
 UDP_BIN_URL2="https://github.com/Zahid-islam02/udp-zivpn/raw/main/zivpn_udp_amd64"
@@ -90,7 +103,7 @@ if [ ! -f "$UDP_BINARY" ]; then
   chmod +x "$UDP_BINARY"
 fi
 
-# Default config.json (unchanged structure)
+# Default config.json
 if [ ! -f "$CONFIG_FILE" ]; then
   say "${Y} Default config.json ကို ဖန်တီးနေသည်...${Z}"
   echo '{
@@ -101,13 +114,13 @@ if [ ! -f "$CONFIG_FILE" ]; then
 }' > "$CONFIG_FILE"
 fi
 
-# Default users.json (unchanged structure)
+# Default users.json
 if [ ! -f "$USERS_FILE" ]; then
   say "${Y} Default users.json ကို ဖန်တီးနေသည်...${Z}"
   echo '{}' > "$USERS_FILE"
 fi
 
-# Web UI Credentials (unchanged structure)
+# Web UI Credentials
 if [ ! -f "$WEB_ENV" ]; then
   say "${Y} Web UI Admin Login အတွက် စကားဝှက်ကို သတ်မှတ်နေသည်...${Z}"
   ADMIN_USER=$(date +%s | sha256sum | base64 | head -c 8)
@@ -119,7 +132,7 @@ if [ ! -f "$WEB_ENV" ]; then
   say "${C} Pass: ${ADMIN_PASS}${Z}"
 fi
 
-# ZIVPN Service file (unchanged structure)
+# ZIVPN Service file
 SERVICE_FILE="/etc/systemd/system/zivpn-udp.service"
 if [ ! -f "$SERVICE_FILE" ]; then
   say "${Y} systemd service ကို ဖန်တီးနေသည်...${Z}"
@@ -138,7 +151,7 @@ WantedBy=multi-user.target" > "$SERVICE_FILE"
   systemctl enable zivpn-udp >/dev/null 2>&1
 fi
 
-# Flask Web UI Service file (unchanged structure)
+# Flask Web UI Service file
 FLASK_SERVICE_FILE="/etc/systemd/system/khaingudp-web.service"
 if [ ! -f "$FLASK_SERVICE_FILE" ]; then
   say "${Y} Web UI systemd service ကို ဖန်တီးနေသည်...${Z}"
@@ -497,7 +510,7 @@ def check_user():
     return jsonify(status="ok"), 200
 
 
-# --- HTML Templates (unchanged structure) ---
+# --- HTML Templates ---
 
 LOGIN_TEMPLATE = """
 <!DOCTYPE html>
@@ -698,22 +711,14 @@ DASHBOARD_TEMPLATE = """
 </body>
 </html>
 """
-
-if __name__ == '__main__':
-    # Flask app ကို start လုပ်သည်
-    # Development အတွက်သာ- ဤအပိုင်းကို systemd service မှ ခေါ်ယူပါသည်
-    app.run(host='0.0.0.0', port=8080)
-EOF
-}
-
 # Python code ကို ရေးသွင်းသည်
 KHAINGUDP_FLASK_CODE
 
-# Firewall နှင့် Network Configuration များ (unchanged structure)
+# Firewall နှင့် Network Configuration များ
 say "${G} Firewall (UFW) နှင့် Network Forwarding များကို စတင်ချိန်ညှိနေပါသည်...${Z}"
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
 grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
-IFACE=$(ip -4 route ls | awk '/default/ {print $5; exit}')
+IFACE=$(ip -4 route ls | awk '/default/ {print $5; exit}') # ip command ကို သုံးသည်
 [ -n "${IFACE:-}" ] || IFACE=eth0
 # DNAT 6000:19999/udp -> :5667
 iptables -t nat -C PREROUTING -i "$IFACE" -p udp --dport 6000:19999 -j DNAT --to-destination :5667 2>/dev/null || \
@@ -727,12 +732,12 @@ ufw allow 6000:19999/udp >/dev/null 2>&1 || true
 ufw allow 8080/tcp >/dev/null 2>&1 || true
 ufw reload >/dev/null 2>&1 || true
 
-# Service များကို ပြန်လည်စတင်သည် (unchanged structure)
+# Service များကို ပြန်လည်စတင်သည်
 say "${G} ZIVPN UDP Service နှင့် Web Panel များကို ပြန်လည်စတင်နေပါသည်...${Z}"
 systemctl restart zivpn-udp
 systemctl restart khaingudp-web
 
-# စစ်ဆေးခြင်း (unchanged structure)
+# စစ်ဆေးခြင်း
 say "${G} အခြေအနေ စစ်ဆေးနေသည်...${Z}"
 systemctl status zivpn-udp | grep -q "active (running)" && ZIVPN_STATUS="${G}RUNNING${Z}" || ZIVPN_STATUS="${R}FAILED${Z}"
 systemctl status khaingudp-web | grep -q "active (running)" && WEB_STATUS="${G}RUNNING${Z}" || WEB_STATUS="${R}FAILED${Z}"
@@ -754,6 +759,6 @@ else
 fi
 
 say "$LINE"
-# cleanup (unchanged structure)
+# cleanup
 unset DEBIAN_FRONTEND
 
