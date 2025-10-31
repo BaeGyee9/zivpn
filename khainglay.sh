@@ -7,7 +7,7 @@
 #           Web UI: Header logo + title + Messenger button, Delete button per user, CLEAN MODERN styling,
 #           Login UI (form-based session, logo included) with /etc/zivpn/web.env credentials.
 #
-# === KHAINGUDP Single-Session Enforcement ADDED ===
+# === FIX: net-tools dependency is now optional but recommended ===
 # Logic added to /check route: Only one unique IP address can use a password at any time.
 # New IP will delete the old IP's conntrack entry via subprocess.
 set -euo pipefail
@@ -17,9 +17,9 @@ B="\e[1;34m"; G="\e[1;32m"; Y="\e[1;33m"; R="\e[1;31m"; C="\e[1;36m"; M="\e[1;35
 LINE="${B}────────────────────────────────────────────────────────${Z}"
 say(){ echo -e "$1"; }
 
-echo -e "\n$LINE\n${G}🌟 ZIVPN UDP Server + Web UI မောင်သုည ${Z}\n$LINE"
+echo -e "\n$LINE\n${G}🌟 ZIVPN UDP Server + Web UI မောင်သုည (FIXED V2)${Z}\n$LINE"
 
-# ===== Root check & apt guards (unchanged structure) =====
+# ===== Root check & apt guards (FIXED STRUCTURE) =====
 if [ "$(id -u)" -ne 0 ];
 then
   echo -e "${R} script root accept (sudo -i)${Z}";
@@ -27,8 +27,10 @@ then
 fi
 export DEBIAN_FRONTEND=noninteractive
 
-# Check for necessary utilities (unchanged structure)
-for cmd in wget curl net-tools iproute2 ufw; do
+# Check for necessary utilities
+REQUIRED_CMDS=("wget" "curl" "iproute2" "ufw")
+
+for cmd in "${REQUIRED_CMDS[@]}"; do
   if ! command -v "$cmd" &>/dev/null; then
     say "${R} ${cmd} လိုအပ်ပါသည်။ သွင်းယူနေသည်...${Z}"
     apt update -qq >/dev/null 2>&1
@@ -39,6 +41,13 @@ for cmd in wget curl net-tools iproute2 ufw; do
     fi
   fi
 done
+
+# net-tools ကို optional အနေဖြင့် ထည့်သွင်းရန် ကြိုးစားသည် (မရလဲ ဆက်သွားမည်)
+if ! command -v netstat &>/dev/null; then
+  say "${Y} net-tools ကို ထည့်သွင်းရန် ကြိုးစားနေသည် (မရပါက ကျော်သွားမည်)...${Z}"
+  apt update -qq >/dev/null 2>&1
+  apt install -y net-tools -qq >/dev/null 2>&1 || say "${Y} net-tools မရပါ။ ဆက်လက်လုပ်ဆောင်ပါမည်။${Z}"
+fi
 
 # Check and install Python & Flask (unchanged structure)
 if ! command -v python3 &>/dev/null; then
@@ -208,6 +217,7 @@ def delete_conntrack_entry(ip_address, user_port="5667"):
         # UDP 5667 port မှာ အဆိုပါ IP ၏ connection ကို ဖျက်သည်
         # '-D' (Delete) command သည် အင်မတန် ထိရောက်သည်
         command = ['sudo', 'conntrack', '-D', '--orig-src', ip_address, '-p', 'udp', '--dport', user_port]
+        # output မလိုချင်ပါက stderr/stdout ကို /dev/null သို့ ပို့နိုင်သည်
         subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         print(f"INFO: Successfully deleted conntrack for old IP: {ip_address}")
     except Exception as e:
@@ -308,6 +318,9 @@ def index():
     # စာရင်း အသေးစိတ်အတွက် ပြင်ဆင်သည်
     user_details = []
     
+    # စစ်ဆေးပြီးနောက် Active Sessions ကို မှတ်သားရန်
+    updated_sessions = active_sessions.copy() 
+    
     for password, data in users.items():
         # ၁။ သက်တမ်းကုန်ဆုံးမှု စစ်ဆေးခြင်း
         is_expired = False
@@ -331,16 +344,18 @@ def index():
         session_ip = 'N/A'
         
         if password in active_sessions:
-            session = active_sessions[password]
+            session_data = active_sessions[password]
+            session_ip = session_data['ip']
+            
             # Conntrack ကို သုံးပြီး တကယ့် Active Status ကို စစ်သည်
-            if get_online_status(session['ip']):
+            if get_online_status(session_ip):
                 online_status = "Online"
                 online_users += 1
-                session_ip = session['ip']
             else:
-                # Conntrack မရှိတော့ရင် session ကို ဖျက်လိုက်သည်
-                del active_sessions[password]
-                save_active_sessions(active_sessions)
+                # Conntrack မရှိတော့ရင် session ကို updated_sessions ကနေ ဖျက်လိုက်သည်
+                if password in updated_sessions:
+                    del updated_sessions[password]
+                session_ip = 'N/A' # IP ကို ပြန်ဖျက်သည်
 
         # ၃။ Details ထဲသို့ ထည့်သွင်းသည်
         user_details.append({
@@ -352,6 +367,10 @@ def index():
             'days_left': days_left,
             'expire_date_str': expire_date_str
         })
+        
+    # Session ပြောင်းလဲမှုရှိရင် Save လုပ်သည်
+    if updated_sessions != active_sessions:
+        save_active_sessions(updated_sessions)
         
     # UI ပြသရန်အတွက် HTML ကို render လုပ်သည်
     return render_template_string(DASHBOARD_TEMPLATE, users=user_details, online_count=online_users)
@@ -429,7 +448,8 @@ def check_user():
     if user_data.get('expires', 'N/A') != 'N/A':
         try:
             expire_date = datetime.strptime(user_data['expires'], '%Y-%m-%d')
-            if datetime.now() > expire_date + timedelta(days=1):
+            # သက်တမ်းကုန်ဆုံးရက်သည် ယနေ့ထက် စောပါက (၁ ရက် ထပ်ပေါင်းထည့်သည်)
+            if datetime.now() > expire_date + timedelta(days=1): 
                 return jsonify(status="expired"), 403 # သက်တမ်းကုန်ဆုံး
         except ValueError:
             pass # နေ့စွဲ မှားယွင်းပါက ခွင့်ပြုလိုက်သည်
