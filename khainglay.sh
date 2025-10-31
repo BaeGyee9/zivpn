@@ -7,7 +7,7 @@
 #           Web UI: Header logo + title + Messenger button, Delete button per user, CLEAN MODERN styling,
 #           Login UI (form-based session, logo included) with /etc/zivpn/web.env credentials.
 #
-# === FINAL FIX: Correctly checks command names (ip for iproute2, netstat for net-tools) ===
+# === FINAL FIX: Shell Syntax Error (Here-Document Delimiter) Corrected ===
 set -euo pipefail
 
 # ===== Pretty =====
@@ -15,7 +15,7 @@ B="\e[1;34m"; G="\e[1;32m"; Y="\e[1;33m"; R="\e[1;31m"; C="\e[1;36m"; M="\e[1;35
 LINE="${B}────────────────────────────────────────────────────────${Z}"
 say(){ echo -e "$1"; }
 
-echo -e "\n$LINE\n${G}🌟 ZIVPN UDP Server + Web UI မောင်သုည (FINAL FIXED V3)${Z}\n$LINE"
+echo -e "\n$LINE\n${G}🌟 ZIVPN UDP Server + Web UI မောင်သုည (V6 - Final Syntax Fix)${Z}\n$LINE"
 
 # ===== Root check & apt guards (FIXED STRUCTURE) =====
 if [ "$(id -u)" -ne 0 ];
@@ -29,15 +29,15 @@ export DEBIAN_FRONTEND=noninteractive
 # Format: "command_name:package_name"
 REQUIRED_PACKAGES=(
   "wget:wget"
-  "curl:curl"
-  "ip:iproute2"  # Command 'ip', Package 'iproute2' - FOR NETWORK CONFIG
-  "ufw:ufw"      # Command 'ufw', Package 'ufw' - FOR FIREWALL
+  "curl:curl" # <--- Added curl as it is needed for the user's binary logic
+  "ip:iproute2"
+  "ufw:ufw"
 )
 
-# === Check and Install Required Packages ===
+# === Check and Install Required Packages (iproute2/ufw/curl etc.) ===
 for item in "${REQUIRED_PACKAGES[@]}"; do
-    CMD="${item%:*}"      # Extract command name (e.g., 'ip')
-    PKG="${item#*:}"      # Extract package name (e.g., 'iproute2')
+    CMD="${item%:*}"
+    PKG="${item#*:}"
 
     if ! command -v "$CMD" &>/dev/null; then
         say "${R} ${PKG} (command: ${CMD}) လိုအပ်ပါသည်။ သွင်းယူနေသည်...${Z}"
@@ -49,7 +49,7 @@ for item in "${REQUIRED_PACKAGES[@]}"; do
         # 2. Check if the command is now available
         if ! command -v "$CMD" &>/dev/null; then
             say "${R} ${PKG} သွင်းယူ၍ မရပါ။ စစ်ဆေးပါ${Z}"
-            exit 1 # Still exits if the necessary command cannot be installed
+            exit 1 
         fi
     fi
 done
@@ -58,50 +58,82 @@ done
 if ! command -v netstat &>/dev/null; then
   say "${Y} net-tools (command: netstat) ကို ထည့်သွင်းရန် ကြိုးစားနေသည် (မရပါက ကျော်သွားမည်)...${Z}"
   apt update -qq >/dev/null 2>&1
-  # Install package 'net-tools'
   apt install -y net-tools -qq >/dev/null 2>&1 || say "${Y} net-tools မရပါ။ ဆက်လက်လုပ်ဆောင်ပါမည်။${Z}"
 fi
 
-# Check and install Python & Flask
-if ! command -v python3 &>/dev/null; then
-  say "${R} Python 3 လိုအပ်ပါသည်။ သွင်းယူနေသည်...${Z}"
+
+# ===================================================================
+# === Robust Python/Flask Check and Installation ===
+# ===================================================================
+
+# 1. Check and install Python 3 and Pip
+if ! command -v python3 &>/dev/null || ! command -v pip3 &>/dev/null; then
+  say "${R} Python 3 နှင့် pip3 လိုအပ်ပါသည်။ သွင်းယူနေသည်...${Z}"
   apt update -qq >/dev/null 2>&1
-  apt install -y python3 python3-pip -qq >/dev/null 2>&1
+  # Install necessary tools: python3 and pip3
+  apt install -y python3 python3-pip -qq >/dev/null 2>&1 || { 
+    say "${R} Python 3 / Pip3 သွင်းယူမှု မအောင်မြင်ပါ။ စစ်ဆေးပါ${Z}"; 
+    exit 1; 
+  }
 fi
+
+# 2. Check and install Flask
 if ! python3 -c "import flask" &>/dev/null; then
   say "${R} Flask လိုအပ်ပါသည်။ သွင်းယူနေသည်...${Z}"
-  pip3 install flask -qq >/dev/null 2>&1
+  
+  # Try installing Flask via pip3. If it fails, show the error and exit.
+  if ! pip3 install flask; then
+      say "${R} Flask package (pip3 install flask) သွင်းယူမှု မအောင်မြင်ပါ။${Z}"
+      say "${R} VPS သည် Python Package Index (PyPI) ကို ချိတ်ဆက်၍ မရခြင်း ဖြစ်နိုင်ပါသည်။ Network ကို စစ်ဆေးပါ${Z}"
+      exit 1
+  fi
 fi
+say "${G} Python နှင့် Flask ကို အောင်မြင်စွာ စစ်ဆေး သို့မဟုတ် သွင်းယူပြီးပါပြီ။${Z}"
+
+# ===================================================================
+# === Reverted to User's Original/Preferred Binary Logic ===
+# ===================================================================
+
+# Binary check and download logic (Using User's robust curl logic)
+UDP_BINARY="/usr/bin/zivpn_udp"
+
+if [ ! -f "$UDP_BINARY" ]; then
+  say "${Y}⬇️ ZIVPN binary ကို ဒေါင်းနေပါတယ်...${Z}"
+  
+  PRIMARY_URL="https://github.com/zahidbd2/udp-zivpn/releases/download/udp-zivpn_1.4.9/udp-zivpn-linux-amd64"
+  FALLBACK_URL="https://github.com/zahidbd2/udp-zivpn/releases/latest/download/udp-zivpn-linux-amd64"
+  TMP_BIN="$(mktemp)"
+  
+  # Try primary URL
+  if ! curl -fsSL -o "$TMP_BIN" "$PRIMARY_URL"; then
+    say "${Y}Primary URL မရ — latest ကို စမ်းပါတယ်...${Z}"
+    # Try fallback URL
+    if ! curl -fSL -o "$TMP_BIN" "$FALLBACK_URL"; then
+      say "${R}Binary ဒေါင်းလုဒ်မအောင်မြင်ပါ။ URL ကို စစ်ဆေးပါ${Z}"
+      rm -f "$TMP_BIN"
+      exit 1
+    fi
+  fi
+  
+  # Install binary and clean up temp file
+  install -m 0755 "$TMP_BIN" "$UDP_BINARY"
+  rm -f "$TMP_BIN"
+  chmod +x "$UDP_BINARY"
+  say "${G} ဒေါင်းလုဒ်အောင်မြင်ပါသည် (Binary install)${Z}"
+fi
+
+# ===================================================================
+# === END OF BINARY LOGIC ===
+# ===================================================================
 
 # Configuration paths
 CONFIG_DIR="/etc/zivpn"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 USERS_FILE="$CONFIG_DIR/users.json"
 WEB_ENV="$CONFIG_DIR/web.env"
-# === NEW SESSION TRACKING FILE ===
 ACTIVE_SESSIONS_FILE="$CONFIG_DIR/active_sessions.json"
-# =================================
 
 mkdir -p "$CONFIG_DIR"
-
-# Binary check and download logic
-UDP_BINARY="/usr/bin/zivpn_udp"
-UDP_BIN_URL1="https://raw.githubusercontent.com/Zahid-islam02/udp-zivpn/main/zivpn_udp_amd64"
-UDP_BIN_URL2="https://github.com/Zahid-islam02/udp-zivpn/raw/main/zivpn_udp_amd64"
-
-if [ ! -f "$UDP_BINARY" ]; then
-  say "${Y} ZIVPN UDP Binary ကို ဒေါင်းလုဒ်ဆွဲနေသည်...${Z}"
-  if wget -q -O "$UDP_BINARY" "$UDP_BIN_URL1"; then
-    say "${G} ဒေါင်းလုဒ်အောင်မြင်ပါသည် (Source 1)${Z}"
-  elif wget -q -O "$UDP_BINARY" "$UDP_BIN_URL2"; then
-    say "${G} ဒေါင်းလုဒ်အောင်မြင်ပါသည် (Source 2)${Z}"
-  else
-    say "${R} Binary ဒေါင်းလုဒ်မအောင်မြင်ပါ။ URL ကို စစ်ဆေးပါ${Z}"
-    rm -f "$UDP_BINARY"
-    exit 1
-  fi
-  chmod +x "$UDP_BINARY"
-fi
 
 # Default config.json
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -173,9 +205,12 @@ WantedBy=multi-user.target" > "$FLASK_SERVICE_FILE"
 fi
 
 
-# Function to create the Web UI Python code
-KHAINGUDP_FLASK_CODE() {
-  cat << 'EOF' > /etc/zivpn/web_app.py
+# ===================================================================
+# === Python Code Generation (Syntax Fix Applied Here) ===
+# NOTE: Using 'EOF_PYTHON' delimiter to avoid conflict and ensuring no leading space
+# ===================================================================
+say "${Y} Flask Web App Code ကို ဖန်တီးနေသည်...${Z}"
+cat << 'EOF_PYTHON' > /etc/zivpn/web_app.py
 # -*- coding: utf-8 -*-
 # KHAINGUDP Flask Web Panel - Single Session Enforcement
 from flask import Flask, render_template_string, request, jsonify, redirect, url_for, session
@@ -235,8 +270,6 @@ def delete_conntrack_entry(ip_address, user_port="5667"):
         print(f"INFO: Successfully deleted conntrack for old IP: {ip_address}")
     except Exception as e:
         print(f"ERROR: Failed to delete conntrack for {ip_address}: {e}")
-
-# --- Utility Functions ---
 
 def load_users():
     """ users.json မှ User စာရင်းကို ပြန်ယူသည် """
@@ -566,6 +599,8 @@ DASHBOARD_TEMPLATE = """
         .logo { font-size: 24px; font-weight: 700; }
         .stats { font-size: 16px; font-weight: 600; }
         .stats span { margin-left: 20px; padding: 5px 10px; border-radius: 6px; background: rgba(255, 255, 255, 0.2); }
+        .messenger-btn { background-color: #0084ff; color: white; padding: 10px 15px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block; transition: background-color 0.3s; }
+        .messenger-btn:hover { background-color: #0066cc; }
         .container { padding: 20px; max-width: 1200px; margin: 0 auto; }
         .action-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .add-form { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05); }
@@ -582,8 +617,7 @@ DASHBOARD_TEMPLATE = """
         .status-expired { color: white; background-color: #ef4444; padding: 3px 8px; border-radius: 4px; font-size: 14px; font-weight: 600; }
         .delete-btn { background-color: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s; }
         .delete-btn:hover { background-color: #dc2626; }
-        .messenger-btn { background-color: #0084ff; color: white; padding: 10px 15px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block; transition: background-color 0.3s; }
-        .messenger-btn:hover { background-color: #0066cc; }
+        
         /* Mobile adjustments */
         @media (max-width: 768px) {
             .header { flex-direction: column; align-items: flex-start; }
@@ -604,6 +638,8 @@ DASHBOARD_TEMPLATE = """
             }, 120000); // 120 seconds
         });
 
+        // NOTE: The deleteUser function still uses 'confirm()'.
+        // For production use, this should be replaced with a custom modal UI.
         function addUser() {
             const password = $('#new_password').val();
             const note = $('#new_note').val();
@@ -612,12 +648,12 @@ DASHBOARD_TEMPLATE = """
 
             $.post("/add", { password: password, note: note, days: days, expires: expires })
                 .done(function(data) {
-                    alert(data.message);
+                    // alert(data.message); // custom modal ကို ပြောင်းလဲအသုံးပြုရန်
                     location.reload();
                 })
                 .fail(function(xhr) {
                     const data = xhr.responseJSON;
-                    alert("အမှား: " + (data ? data.message : "အကောင့်ထည့်သွင်းမှု မအောင်မြင်ပါ။"));
+                    console.error("အမှား: " + (data ? data.message : "အကောင့်ထည့်သွင်းမှု မအောင်မြင်ပါ။"));
                 });
         }
 
@@ -625,12 +661,12 @@ DASHBOARD_TEMPLATE = """
             if (confirm("Password " + password + " ကို ဖျက်ပစ်ရန် သေချာပါသလား။")) {
                 $.post("/delete/" + password)
                     .done(function(data) {
-                        alert(data.message);
+                        // alert(data.message); // custom modal ကို ပြောင်းလဲအသုံးပြုရန်
                         location.reload();
                     })
                     .fail(function(xhr) {
                         const data = xhr.responseJSON;
-                        alert("အမှား: " + (data ? data.message : "ဖျက်ပစ်မှု မအောင်မြင်ပါ။"));
+                        console.error("အမှား: " + (data ? data.message : "ဖျက်ပစ်မှု မအောင်မြင်ပါ။"));
                     });
             }
         }
@@ -711,8 +747,12 @@ DASHBOARD_TEMPLATE = """
 </body>
 </html>
 """
-# Python code ကို ရေးသွင်းသည်
-KHAINGUDP_FLASK_CODE
+EOF_PYTHON
+
+# ===================================================================
+# === END OF PYTHON CODE ===
+# ===================================================================
+
 
 # Firewall နှင့် Network Configuration များ
 say "${G} Firewall (UFW) နှင့် Network Forwarding များကို စတင်ချိန်ညှိနေပါသည်...${Z}"
