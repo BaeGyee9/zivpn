@@ -153,7 +153,7 @@ if jq . >/dev/null 2>&1 <<<'{}'; then
     .listen = (."listen" // ":5667") |
     .cert = "/etc/zivpn/zivpn.crt" |
     .key  = "/etc/zivpn/zivpn.key" |
-    .obfs = (."obfs" // "zivpn") |
+    .obfs = "wechat" |
     .server = $ip
   ' "$CFG" > "$TMP" && mv "$TMP" "$CFG"
 fi
